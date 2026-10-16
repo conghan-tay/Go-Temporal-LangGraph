@@ -1,3 +1,5 @@
+import json
+import re
 from abc import ABC, abstractmethod
 from typing import Literal
 
@@ -14,7 +16,8 @@ class Classification(BaseModel):
 
 
 class Plan(BaseModel):
-    action: Literal["lookup_order", "refund", "account_credit", "cancel_order", "none"]
+    action: Literal["refund", "account_credit", "cancel_order", "none"]
+    read_tools: list[Literal["lookup_order"]] = Field(default_factory=list)
     rationale: str
     requires_order: bool = False
     amount: float | None = Field(default=None, ge=0, le=10_000)
@@ -65,8 +68,10 @@ class LangChainSupportModel(SupportModel):
     async def plan(self, message: str, classification: Classification) -> Plan:
         model = self._model.with_structured_output(Plan)
         return await model.ainvoke(
-            "Choose at most one business action for this support request. Read-only order "
-            "lookup is safe. Refund, credit, and cancellation are side effects. "
+            "Choose read_tools separately from the proposed business action. Order-status "
+            "requests use read_tools=[lookup_order] and action=none. Refund requests use "
+            "read_tools=[lookup_order] and action=refund; code checks eligibility and amount. "
+            "Refund, credit, and cancellation require approval. "
             f"Classification: {classification.model_dump_json()}. Request: {message}"
         )
 
@@ -78,7 +83,10 @@ class LangChainSupportModel(SupportModel):
         model = self._model.with_structured_output(Critique)
         return await model.ainvoke(
             "Evaluate the answer for correctness, citation grounding, clarity, and whether it "
-            "promises an unapproved side effect. Pass only at score 4+.\n"
+            "promises an unapproved side effect. When the planned action is refund, the "
+            "original request is sufficient: no additional customer confirmation is required. "
+            "Fail refund drafts that ask permission to submit for human review or claim "
+            "approval, submission, or issuance before execution. Pass only at score 4+.\n"
             f"Context:\n{context}\nAnswer:\n{answer}"
         )
 
@@ -103,26 +111,35 @@ class FakeSupportModel(SupportModel):
     async def plan(self, message: str, classification: Classification) -> Plan:
         if classification.category == "refund":
             return Plan(
-                action="refund", rationale="Customer explicitly requested a refund", amount=25
+                action="refund",
+                read_tools=["lookup_order"],
+                rationale="Customer explicitly requested a refund",
+                requires_order=True,
             )
         if classification.category == "order_status":
             return Plan(
-                action="lookup_order", rationale="Order state is required", requires_order=True
+                action="none",
+                read_tools=["lookup_order"],
+                rationale="Order state is required",
+                requires_order=True,
             )
         return Plan(action="none", rationale="The knowledge base is sufficient")
 
     async def draft(self, prompt: str) -> str:
-        if "shipping" in prompt.lower() or "lookup_order" in prompt:
-            return (
-                "Your order is in transit and should arrive within 3–5 business days. "
-                "[shipping-policy]"
+        # Cite only source tags actually retrieved, so E2E proves the write/read seam.
+        sources = re.findall(r'<knowledge source="([^"<>]+)">', prompt)
+        citations = " ".join(f"[{source}]" for source in dict.fromkeys(sources))
+        if '"action":"refund"' in prompt:
+            evidence = json.loads(
+                prompt.split("Verified refund evidence: ", 1)[1].split("\n", 1)[0]
             )
-        if "refund" in prompt.lower():
             return (
-                "I prepared a $25 refund for review. It will only be issued after approval. "
-                "[refund-policy]"
-            )
-        return "I found the relevant guidance and summarized it for you. [support-handbook]"
+                f"The ${evidence['amount']:.2f} refund request received {evidence['request_date']} "
+                f"for delivery on {evidence['delivered_at']} is within the 30-day window. "
+                "Your refund request will proceed to internal human review. "
+                f"{citations}"
+            ).strip()
+        return f"I found the relevant order and policy guidance. {citations}".strip()
 
     async def critique(self, answer: str, context: str) -> Critique:
         return Critique(

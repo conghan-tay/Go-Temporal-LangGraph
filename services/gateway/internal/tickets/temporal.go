@@ -41,10 +41,10 @@ type TemporalService struct {
 func NewTemporalService(
 	temporalClient client.Client, taskQueue string, approvalTimeoutHours int,
 ) *TemporalService {
-	// Give a run its approval window plus headroom for the agent's own work, so a
+	// Give a run two approval windows (input review and business action), plus headroom, so a
 	// forgotten ticket is eventually closed out by Temporal even if the deadline logic
 	// is bypassed.
-	executionTimeout := time.Duration(approvalTimeoutHours)*time.Hour + time.Hour
+	executionTimeout := 2*time.Duration(approvalTimeoutHours)*time.Hour + time.Hour
 	if approvalTimeoutHours == 0 {
 		executionTimeout = 0 // unlimited, matching the "wait forever" policy
 	}
@@ -75,9 +75,10 @@ func (s *TemporalService) Start(
 		return api.RunState{}, fmt.Errorf("start support workflow: %w", err)
 	}
 	return api.RunState{
-		TicketID:  ticketID,
-		Status:    api.StatusRunning,
-		Citations: []string{},
+		TicketID:    ticketID,
+		Status:      api.StatusRunning,
+		Citations:   []string{},
+		SafetyFlags: []string{},
 	}, nil
 }
 
@@ -93,6 +94,9 @@ func (s *TemporalService) Get(ctx context.Context, ticketID string) (api.RunStat
 	// The workflow knows its own id, but trust the routed one so a response can never
 	// disagree with the URL that produced it.
 	state.TicketID = ticketID
+	if state.SafetyFlags == nil {
+		state.SafetyFlags = []string{}
+	}
 	if state.Citations == nil {
 		state.Citations = []string{}
 	}
@@ -112,15 +116,19 @@ func (s *TemporalService) Decide(
 	if state.Status != api.StatusWaitingApproval {
 		return api.RunState{}, ErrNotAwaiting
 	}
+	if state.PendingAction == nil || decision.ReviewID != state.PendingAction.ReviewID {
+		return api.RunState{}, ErrStaleReview
+	}
 	if err := s.client.SignalWorkflow(
 		ctx, ticketID, "", signalSubmitDecision, decision,
 	); err != nil {
 		return api.RunState{}, fmt.Errorf("signal decision: %w", err)
 	}
 	return api.RunState{
-		TicketID:  ticketID,
-		Status:    api.StatusRunning,
-		Citations: []string{},
+		TicketID:    ticketID,
+		Status:      api.StatusRunning,
+		Citations:   []string{},
+		SafetyFlags: []string{},
 	}, nil
 }
 

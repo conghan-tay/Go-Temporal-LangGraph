@@ -56,12 +56,16 @@ without losing a ticket.
 
 ```mermaid
 flowchart TD
-    Start(["Ticket"]) --> Safety["Normalize + safety flags"]
-    Safety --> Classify["Typed classification"]
+    Start(["Ticket"]) --> Safety["Inspect + normalize input"]
+    Safety --> InputReview["Review flagged input before any model/tool"]
+    InputReview -->|"clean or approved"| Classify["Typed classification"]
+    InputReview -->|"reject or timeout"| InputRejected(["Rejected"])
     Classify --> Retrieve["Retrieve policy"]
     Retrieve --> Plan["Structured plan"]
     Plan --> ReadTool["Execute allow-listed read tools"]
-    ReadTool --> Draft["Grounded draft"]
+    ReadTool --> Eligibility["Refund eligibility: delivery date + request date"]
+    Eligibility -->|"eligible or not a refund"| Draft["Grounded draft"]
+    Eligibility -->|"ineligible or unverifiable refund"| PolicyRejected(["Rejected"])
     Draft --> Critique["Reflection / critique"]
     Critique -->|"weak and loop budget remains"| Draft
     Critique -->|"acceptable"| Risk{"Side effect?"}
@@ -172,14 +176,14 @@ durable run with:
 curl -sS http://localhost:8080/v1/tickets/TICKET_ID/decision \
   -H 'X-API-Key: local-api-key' \
   -H 'Content-Type: application/json' \
-  -d '{"decision":"approve","reviewer":"manager-7","comment":"Policy verified"}'
+  -d '{"review_id":"REVIEW_ID_FROM_GET","decision":"approve","reviewer":"manager-7","comment":"Policy verified"}'
 # -> 202; poll GET again until "completed"
 ```
 
 To see durability rather than take it on trust, pause a refund, then run
 `docker compose restart worker` and approve it. The run resumes on a brand-new process.
 
-Stop the stack with `make down`. Add `-v` to `docker compose down` only when you
+Stop the stack with `docker compose down`. `make down` includes `-v`; use it only when you
 intentionally want to delete local Temporal, Chroma, and Redis data.
 
 ## Logging
@@ -332,3 +336,22 @@ disposable edge counters; Chroma is hidden behind a repository interface on both
 
 This separation gives future projects clear seams without turning a small teaching
 example into a large microservice estate.
+
+## Input review and refund eligibility
+
+Flagged requests pause before any model, retrieval, or tool call. Flags identify
+instruction override, prompt disclosure, and role impersonation separately. Input
+approval permits processing but never approves a business action. Each decision
+requires the `review_id` from the current `pending_action`; stale IDs return 409.
+
+Refund requests fetch delivery evidence and calculate the inclusive 30-day window
+against the ticket's UTC creation date in code. Eligible demo refunds require a
+separate approval; ineligible or unverifiable refunds are rejected without payment.
+Use `demo-1` for an eligible refund, `demo-10` for an expired one, and `demo-0` for an
+undelivered order. MCP and the local fallback use the same repeatable demo data.
+
+See [the implementation and manual API guide](docs/input-review-refunds.md) for the
+flag categories, two-review examples, timeouts, and restart checks. This upgrade
+targets new histories: finish needed old tickets first and use a fresh development
+Temporal namespace, preserving existing data. Pre-upgrade histories are not
+promised to replay after graph nodes and state have been renamed.

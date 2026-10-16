@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 import structlog
+from app.tools.orders import demo_order
 from mcp.server.fastmcp import FastMCP
 
 logger = structlog.get_logger(__name__)
@@ -14,25 +15,17 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-def lookup_order(order_id: str) -> dict[str, Any]:
+def lookup_order(order_id: str, as_of_date: str | None = None) -> dict[str, Any]:
     """Return order status from the demo order system."""
 
-    # Replace this body with the commerce provider SDK. The MCP contract and graph
-    # do not need to change when the implementation moves to another repository.
-    suffix = sum(ord(character) for character in order_id) % 3
-    states = (
-        {"status": "processing", "eta_business_days": 5},
-        {"status": "in_transit", "eta_business_days": 3},
-        {"status": "delivered", "eta_business_days": 0},
-    )
-    state = states[suffix]
+    result = demo_order(order_id, as_of_date)
     logger.info(
         "lookup_order",
         component="mcp_tool",
-        status=state["status"],
-        eta_business_days=state["eta_business_days"],
+        status=result["status"],
+        delivered_at=result["delivered_at"],
     )
-    return {"order_id": order_id, **state}
+    return result
 
 
 @mcp.tool()

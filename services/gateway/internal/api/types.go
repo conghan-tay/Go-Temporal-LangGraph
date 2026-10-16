@@ -95,6 +95,7 @@ func (r *TicketRequest) Validate() error {
 
 // ApprovalDecision is the body of POST /v1/tickets/{id}/decision.
 type ApprovalDecision struct {
+	ReviewID string  `json:"review_id"`
 	Decision string  `json:"decision"`
 	Reviewer string  `json:"reviewer"`
 	Comment  *string `json:"comment,omitempty"`
@@ -112,11 +113,12 @@ func (d *ApprovalDecision) Validate() error {
 			return err
 		}
 	}
-	return nil
+	return checkLength("review_id", d.ReviewID, 1, 200)
 }
 
 // PendingAction describes the side effect a reviewer is being asked to approve.
 type PendingAction struct {
+	ReviewID  string         `json:"review_id"`
 	Action    string         `json:"action"`
 	Arguments map[string]any `json:"arguments"`
 	Reason    string         `json:"reason"`
@@ -125,6 +127,7 @@ type PendingAction struct {
 // RunState is the public view of a ticket, returned by every ticket route and by the
 // workflow's get_state query.
 type RunState struct {
+	SafetyFlags   []string       `json:"safety_flags"`
 	TicketID      string         `json:"ticket_id"`
 	Status        string         `json:"status"`
 	Answer        *string        `json:"answer,omitempty"`

@@ -10,7 +10,10 @@ class SupportState(TypedDict, total=False):
     metadata: dict[str, Any]
 
     # Intermediate graph data. Keeping raw values makes checkpoints debuggable.
-    sanitized_message: str
+    normalized_message: str
+    request_date: str
+    input_review: dict[str, Any]
+    refund_evidence: dict[str, Any]
     safety_flags: list[str]
     classification: dict[str, Any]
     documents: list[dict[str, Any]]
@@ -23,5 +26,6 @@ class SupportState(TypedDict, total=False):
     # Terminal API data
     status: str
     final_answer: str
+    citations: list[str]
     approval: dict[str, Any]
     action_result: dict[str, Any]

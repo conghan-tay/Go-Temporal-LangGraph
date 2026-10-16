@@ -218,6 +218,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		writeError(w, http.StatusBadRequest, validation.Error())
 	case errors.Is(err, tickets.ErrNotFound):
 		writeError(w, http.StatusNotFound, "ticket not found")
+	case errors.Is(err, tickets.ErrStaleReview):
+		writeError(w, http.StatusConflict, "review id does not match the pending review")
 	case errors.Is(err, tickets.ErrNotAwaiting):
 		writeError(w, http.StatusConflict, "ticket is not awaiting review")
 	case errors.Is(err, context.DeadlineExceeded):
