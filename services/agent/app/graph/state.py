@@ -26,5 +26,6 @@ class SupportState(TypedDict, total=False):
     # Terminal API data
     status: str
     final_answer: str
+    citations: list[str]
     approval: dict[str, Any]
     action_result: dict[str, Any]

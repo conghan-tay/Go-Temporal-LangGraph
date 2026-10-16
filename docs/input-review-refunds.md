@@ -35,6 +35,14 @@ drafts keep the markers for critique and grounding; a pending review still has
 `answer: null` and may include draft citations. Paragraphs and Markdown formatting
 are preserved when removing the markers and their surrounding spacing.
 
+The customer's initial refund request is sufficient to start review. Refund drafts
+must not ask permission to submit for review. After action acceptance, the response
+is a deterministic confirmation built from the adapter's returned amount and order
+ID, not the earlier draft. Accepted submission does not mean the funds have reached
+the customer. Malformed or unsuccessful results follow the existing retry/error
+path and cannot produce a successful completion message. Draft citations remain
+separate metadata on the final response.
+
 Refunds always look up the order before checking the 30-day delivery window in
 Python. Age 0 through 30 inclusive is eligible; day 31 is not. Eligibility uses
 the UTC date the workflow started, not the date a reviewer eventually approves.
@@ -145,7 +153,7 @@ TICKET_ID=$(create_ticket '{"customer_id":"customer-42","message":"I want a refu
 wait_ticket refund
 REVIEW_ID=$(get_ticket | jq -r .pending_action.review_id)
 review_ticket approve
-wait_ticket completed # answer starts "Approved and submitted."
+wait_ticket completed # "Your $25.00 refund request for order demo-1 has been approved and submitted."
 # Clean answer, with source IDs still present as separate metadata.
 get_ticket | jq '{answer, citations}'
 

@@ -137,3 +137,17 @@ def test_draft_citations_and_internal_values_are_preserved():
     assert state.answer is None
     assert state.citations == ["lookup_order", "refund-policy"]
     assert values["draft"].endswith("[lookup_order] [refund-policy]")
+
+
+@pytest.mark.parametrize("source_ids", [["refund-policy", "lookup_order", "refund-policy"], []])
+def test_explicit_citations_take_precedence_over_answer_and_draft_markers(source_ids):
+    state = to_run_state(
+        ticket_id="completed",
+        values={
+            "final_answer": "Your $25.00 refund request has been approved and submitted.",
+            "draft": "Pending review. [old-draft-source]",
+            "citations": source_ids,
+        },
+    )
+    assert state.citations == list(dict.fromkeys(source_ids))
+    assert "[" not in state.answer

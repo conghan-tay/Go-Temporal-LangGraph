@@ -84,11 +84,18 @@ async def test_refund_pauses_then_resumes_after_approval(
 
     assert state.status is RunStatus.COMPLETED
     assert state.answer is not None
-    assert state.answer.startswith("Approved and submitted.")
+    assert state.answer == (
+        "Your $25.00 refund request for order demo-1 has been approved and submitted."
+    )
     assert "refund-policy" in state.citations
     assert "[refund-policy]" not in state.answer
     # Only the public projection is cleaned: critique still sees citation markers.
     assert "[refund-policy]" in nodes._model.critique.call_args.args[0]
+    assert "will proceed to internal human review" in nodes._model.critique.call_args.args[0]
+    assert "no additional customer confirmation" in nodes._model.draft.call_args.args[0]
+    assert "Planned action: refund" in nodes._model.critique.call_args.args[1]
+    nodes._model.draft.assert_awaited_once()
+    nodes._model.critique.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -308,3 +315,46 @@ async def test_unverified_refunds_never_reach_action(support_worker, task_queue,
         assert nodes._tools.execute_read_tool.await_count == 3
     if kind == "missing_id":
         nodes._tools.execute_read_tool.assert_not_awaited()
+
+
+async def test_contradictory_draft_is_not_reused_after_approval(support_worker, task_queue, nodes):
+    nodes._model.draft.return_value = (
+        "Would you like me to submit the $999 refund for review? [refund-policy]"
+    )
+    handle = await _start(support_worker, task_queue, "contradictory-draft", "I want a refund")
+    await _decide(handle, "refund")
+    result = await handle.result()
+    assert result.answer == (
+        "Your $25.00 refund request for order demo-1 has been approved and submitted."
+    )
+    assert result.citations == ["refund-policy"]
+    nodes._model.draft.assert_awaited_once()
+    nodes._model.critique.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        {"action": "refund", "result": "failed", "arguments": {"amount": 25, "order_id": "demo-1"}},
+        {"action": "refund", "result": "accepted"},
+        {"action": "cancel_order", "result": "accepted", "arguments": {"order_id": "demo-1"}},
+    ],
+)
+async def test_invalid_action_results_follow_retry_policy_without_success(
+    support_worker,
+    task_queue,
+    nodes,
+    output,
+):
+    from app.tools.registry import ToolResult
+    from temporalio.client import WorkflowFailureError
+
+    nodes._tools.execute_action.return_value = ToolResult(name="refund", output=output)
+    handle = await _start(support_worker, task_queue, "invalid-action-result", "I want a refund")
+    await _decide(handle, "refund")
+    with pytest.raises(WorkflowFailureError):
+        await handle.result()
+    assert nodes._tools.execute_action.await_count == 3
+    state = await handle.query(SupportTicketWorkflow.get_state)
+    assert state.status is not RunStatus.COMPLETED
+    assert state.answer is None

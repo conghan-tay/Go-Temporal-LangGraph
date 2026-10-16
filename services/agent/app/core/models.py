@@ -83,7 +83,10 @@ class LangChainSupportModel(SupportModel):
         model = self._model.with_structured_output(Critique)
         return await model.ainvoke(
             "Evaluate the answer for correctness, citation grounding, clarity, and whether it "
-            "promises an unapproved side effect. Pass only at score 4+.\n"
+            "promises an unapproved side effect. When the planned action is refund, the "
+            "original request is sufficient: no additional customer confirmation is required. "
+            "Fail refund drafts that ask permission to submit for human review or claim "
+            "approval, submission, or issuance before execution. Pass only at score 4+.\n"
             f"Context:\n{context}\nAnswer:\n{answer}"
         )
 
@@ -133,6 +136,7 @@ class FakeSupportModel(SupportModel):
             return (
                 f"The ${evidence['amount']:.2f} refund request received {evidence['request_date']} "
                 f"for delivery on {evidence['delivered_at']} is within the 30-day window. "
+                "Your refund request will proceed to internal human review. "
                 f"{citations}"
             ).strip()
         return f"I found the relevant order and policy guidance. {citations}".strip()

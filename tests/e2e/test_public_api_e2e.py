@@ -100,7 +100,9 @@ def test_public_refund_approval_lifecycle() -> None:
         assert approved.status_code == httpx.codes.ACCEPTED
 
         completed = poll_until(client, ticket_id, "completed")
-        assert completed["answer"].startswith("Approved and submitted.")
+        assert completed["answer"] == (
+            "Your $25.00 refund request for order demo-1 has been approved and submitted."
+        )
         # Reached only when retrieval returned the seeded document, so this asserts the
         # gateway's write path and the worker's read path agree on the collection and
         # the embedding model.
@@ -219,8 +221,8 @@ def test_public_flagged_refund_requires_two_distinct_reviews():
         assert stale.status_code == httpx.codes.CONFLICT
         decision["review_id"] = second["pending_action"]["review_id"]
         assert_success(client.post(f"/v1/tickets/{ticket_id}/decision", json=decision))
-        assert poll_until(client, ticket_id, "completed")["answer"].startswith(
-            "Approved and submitted."
+        assert poll_until(client, ticket_id, "completed")["answer"] == (
+            "Your $25.00 refund request for order demo-1 has been approved and submitted."
         )
 
 

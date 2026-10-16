@@ -60,7 +60,11 @@ def to_run_state(
     values = values or {}
     answer = values.get("final_answer")
     # Extract before cleaning; internal drafts remain intact for critique/grounding.
-    source_ids = citations(answer or values.get("draft"))
+    source_ids = (
+        list(dict.fromkeys(values["citations"]))
+        if "citations" in values
+        else citations(answer or values.get("draft"))
+    )
     classification = values.get("classification")
     status = (
         RunStatus.WAITING_APPROVAL
