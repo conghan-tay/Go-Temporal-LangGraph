@@ -59,11 +59,12 @@ async def test_read_only_order_lookup_completes_without_approval(
     assert state.pending_action is None
     assert state.category == "order_status"
     assert state.citations == ["shipping-policy"]
+    assert "[shipping-policy]" not in state.answer
 
 
 @pytest.mark.asyncio
 async def test_refund_pauses_then_resumes_after_approval(
-    support_worker: Client, task_queue: str
+    support_worker: Client, task_queue: str, nodes
 ) -> None:
     handle = await _start(support_worker, task_queue, "refund-ticket", "Please refund my order")
     await _wait_for_pause(handle)
@@ -84,6 +85,10 @@ async def test_refund_pauses_then_resumes_after_approval(
     assert state.status is RunStatus.COMPLETED
     assert state.answer is not None
     assert state.answer.startswith("Approved and submitted.")
+    assert "refund-policy" in state.citations
+    assert "[refund-policy]" not in state.answer
+    # Only the public projection is cleaned: critique still sees citation markers.
+    assert "[refund-policy]" in nodes._model.critique.call_args.args[0]
 
 
 @pytest.mark.asyncio

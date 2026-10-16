@@ -28,6 +28,13 @@ missing IDs return 400 and stale IDs return 409. Delayed signals are checked aga
 by the workflow. Input approval and business-action approval are independent.
 Each pause gets `APPROVAL_TIMEOUT_HOURS` (default 72); zero waits indefinitely.
 
+Customer-facing `answer` text omits inline source markers such as `[lookup_order]`
+and `[refund-policy]`. The API extracts their IDs first and retains them in the
+separate `citations` array, preserving order and removing duplicates. Internal
+drafts keep the markers for critique and grounding; a pending review still has
+`answer: null` and may include draft citations. Paragraphs and Markdown formatting
+are preserved when removing the markers and their surrounding spacing.
+
 Refunds always look up the order before checking the 30-day delivery window in
 Python. Age 0 through 30 inclusive is eligible; day 31 is not. Eligibility uses
 the UTC date the workflow started, not the date a reviewer eventually approves.
@@ -139,6 +146,8 @@ wait_ticket refund
 REVIEW_ID=$(get_ticket | jq -r .pending_action.review_id)
 review_ticket approve
 wait_ticket completed # answer starts "Approved and submitted."
+# Clean answer, with source IDs still present as separate metadata.
+get_ticket | jq '{answer, citations}'
 
 # Expired refund: rejected, answer explains 54 days exceeds 30; no pending_action.
 TICKET_ID=$(create_ticket '{"customer_id":"customer-42","message":"I want a refund","order_id":"demo-10"}' | jq -r .ticket_id)

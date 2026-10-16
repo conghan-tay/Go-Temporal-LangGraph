@@ -106,6 +106,8 @@ def test_public_refund_approval_lifecycle() -> None:
         # the embedding model.
         assert completed["citations"], "the answer cited nothing, so retrieval returned nothing"
         assert "e2e-refund-evidence" in completed["citations"]
+        for source_id in completed["citations"]:
+            assert f"[{source_id}]" not in completed["answer"]
 
 
 def test_decision_on_a_ticket_that_is_not_awaiting_review_conflicts() -> None:

@@ -1,3 +1,4 @@
+import pytest
 from app.core.schemas import PendingAction, RunStatus
 from app.temporal.mapping import citations, to_run_state
 
@@ -26,6 +27,7 @@ def test_completed_state_reports_category_and_citations() -> None:
     assert state.status is RunStatus.COMPLETED
     assert state.category == "order_status"
     assert state.citations == ["shipping-policy"]
+    assert state.answer == "Your order ships soon."
     assert state.pending_action is None
 
 
@@ -43,6 +45,7 @@ def test_pending_action_forces_waiting_approval() -> None:
     assert state.status is RunStatus.WAITING_APPROVAL
     # While paused there is no final answer yet, so citations come from the draft.
     assert state.citations == ["refund-policy"]
+    assert state.answer is None
 
 
 def test_absent_state_is_treated_as_empty() -> None:
@@ -70,3 +73,67 @@ def test_safety_flags_survive_projection():
     assert to_run_state(
         ticket_id="t", values={"safety_flags": ["prompt_injection:role_impersonation"]}
     ).safety_flags == ["prompt_injection:role_impersonation"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected", "sources"),
+    [
+        ("Eligible. [refund-policy]", "Eligible.", ["refund-policy"]),
+        (
+            "Eligible [lookup_order] [refund-policy].",
+            "Eligible.",
+            ["lookup_order", "refund-policy"],
+        ),
+        ("Eligible[lookup_order][refund-policy]", "Eligible", ["lookup_order", "refund-policy"]),
+        ("A [refund-policy] claim [refund-policy].", "A claim.", ["refund-policy"]),
+        ("[lookup_order] Eligible.", "Eligible.", ["lookup_order"]),
+        ("[lookup_order][refund-policy]", "", ["lookup_order", "refund-policy"]),
+        (
+            "Eligible [refund-policy], pending review.",
+            "Eligible, pending review.",
+            ["refund-policy"],
+        ),
+        (
+            "**$25 refund** [lookup_order].\n\nReview required. [refund-policy]",
+            "**$25 refund**.\n\nReview required.",
+            ["lookup_order", "refund-policy"],
+        ),
+        (
+            "- Eligible [refund-policy]\n  - **$25** [lookup_order]",
+            "- Eligible\n  - **$25**",
+            ["refund-policy", "lookup_order"],
+        ),
+        ("    [refund-policy] Indented text", "    Indented text", ["refund-policy"]),
+        ("Keep  these spaces. [refund-policy]", "Keep  these spaces.", ["refund-policy"]),
+        (
+            "**No citations**\n\n  Keep  formatting.\n",
+            "**No citations**\n\n  Keep  formatting.\n",
+            [],
+        ),
+        ("", "", []),
+        (None, None, []),
+    ],
+)
+def test_answer_is_cleaned_after_extracting_citations(raw, expected, sources):
+    values = {"status": "completed", "final_answer": raw}
+    state = to_run_state(ticket_id="ticket-clean", values=values)
+    assert state.answer == expected
+    assert state.citations == sources
+    assert values["final_answer"] == raw
+
+
+def test_draft_citations_and_internal_values_are_preserved():
+    values = {"draft": "Review the **$25 refund**. [lookup_order] [refund-policy]"}
+    state = to_run_state(
+        ticket_id="ticket-review",
+        values=values,
+        pending_action=PendingAction(
+            review_id="ticket-review:business_action",
+            action="refund",
+            arguments={},
+            reason="review",
+        ),
+    )
+    assert state.answer is None
+    assert state.citations == ["lookup_order", "refund-policy"]
+    assert values["draft"].endswith("[lookup_order] [refund-policy]")
