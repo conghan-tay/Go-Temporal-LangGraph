@@ -36,10 +36,6 @@ WORKFLOW_NAME = "SupportTicketWorkflow"
 SIGNAL_SUBMIT_DECISION = "submit_decision"
 QUERY_GET_STATE = "get_state"
 
-_TIMED_OUT_DECISION = ApprovalDecision(
-    decision="reject", reviewer="system", comment="approval timed out"
-)
-
 
 @workflow.defn(name=WORKFLOW_NAME)
 class SupportTicketWorkflow:
@@ -67,13 +63,28 @@ class SupportTicketWorkflow:
         before the pause, or a second decision, is dropped rather than applied.
         """
 
-        if self._state.status is not RunStatus.WAITING_APPROVAL or self._decision is not None:
+        pending = self._state.pending_action
+        if (
+            self._state.status is not RunStatus.WAITING_APPROVAL
+            or self._decision is not None
+            or pending is None
+            or decision.review_id != pending.review_id
+        ):
             workflow.logger.warning(
                 "decision ignored: ticket is not awaiting review",
                 extra={"status": self._state.status, "reviewer": decision.reviewer},
             )
             return
         self._decision = decision
+        workflow.logger.info(
+            "review_decision",
+            extra={
+                "ticket_id": self._state.ticket_id,
+                "review_id": decision.review_id,
+                "stage": pending.action,
+                "decision": decision.decision,
+            },
+        )
 
     @workflow.run
     async def run(self, request: TicketRequest, approval_timeout_hours: int = 0) -> RunState:
@@ -103,20 +114,38 @@ class SupportTicketWorkflow:
                 "message": request.message,
                 "order_id": request.order_id,
                 "metadata": request.metadata,
+                "request_date": created_at.date().isoformat(),
             },
             config,
             version="v2",
         )
 
-        if result.interrupts:
+        while result.interrupts:
             pending = PendingAction.model_validate(result.interrupts[0].value)
+            self._decision = None
             self._state = to_run_state(
                 ticket_id=ticket_id,
                 values=result.value,
                 created_at=created_at,
                 pending_action=pending,
             )
-            decision = await self._await_decision()
+            workflow.logger.info(
+                "review_waiting",
+                extra={
+                    "ticket_id": ticket_id,
+                    "review_id": pending.review_id,
+                    "stage": pending.action,
+                    "safety_flags": self._state.safety_flags,
+                },
+            )
+            decision = await self._await_decision(pending.review_id)
+            self._decision = None
+            self._state = self._state.model_copy(
+                update={
+                    "status": RunStatus.RUNNING,
+                    "pending_action": None,
+                }
+            )
             result = await app.ainvoke(
                 Command(resume=decision.model_dump(mode="json")), config, version="v2"
             )
@@ -124,7 +153,7 @@ class SupportTicketWorkflow:
         self._state = to_run_state(ticket_id=ticket_id, values=result.value, created_at=created_at)
         return self._state
 
-    async def _await_decision(self) -> ApprovalDecision:
+    async def _await_decision(self, review_id: str) -> ApprovalDecision:
         """Block until a reviewer decides, or until the approval deadline passes.
 
         An unbounded wait leaves workflows open forever when nobody reviews. A deadline
@@ -138,6 +167,11 @@ class SupportTicketWorkflow:
             await workflow.wait_condition(lambda: self._decision is not None, timeout=timeout)
         except TimeoutError:
             workflow.logger.warning("approval timed out; auto-rejecting")
-            return _TIMED_OUT_DECISION
+            return ApprovalDecision(
+                review_id=review_id,
+                decision="reject",
+                reviewer="system",
+                comment="approval timed out",
+            )
         assert self._decision is not None
         return self._decision

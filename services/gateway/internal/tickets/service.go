@@ -12,6 +12,7 @@ import (
 )
 
 var (
+	ErrStaleReview = errors.New("review id does not match the pending review")
 	// ErrNotFound means no workflow exists for the ticket id.
 	ErrNotFound = errors.New("ticket not found")
 	// ErrNotAwaiting means the ticket exists but is not paused for review.

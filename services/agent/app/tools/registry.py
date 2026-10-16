@@ -6,16 +6,17 @@ from langchain_core.tools import BaseTool, tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from ..core.settings import Settings
+from .orders import demo_order, normalize_order
 
 logger = structlog.get_logger()
 
 
 @tool
-def lookup_order(order_id: str) -> dict[str, Any]:
+def lookup_order(order_id: str, as_of_date: str | None = None) -> dict[str, Any]:
     """Look up the current status of a customer order by its identifier."""
 
     # This deterministic adapter is intentionally easy to replace with a real order API.
-    return {"order_id": order_id, "status": "in_transit", "eta_business_days": 3}
+    return demo_order(order_id, as_of_date)
 
 
 @dataclass
@@ -60,7 +61,10 @@ class ToolRegistry:
     async def execute_read_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         if name not in self._tools:
             raise ValueError(f"Tool is not allow-listed: {name}")
-        return ToolResult(name=name, output=await self._tools[name].ainvoke(arguments))
+        output = await self._tools[name].ainvoke(arguments)
+        if name == "lookup_order":
+            output = normalize_order(output, arguments["order_id"])
+        return ToolResult(name=name, output=output)
 
     async def execute_action(
         self, ticket_id: str, action: str, arguments: dict[str, Any]

@@ -25,12 +25,14 @@ class TicketRequest(BaseModel):
 
 
 class ApprovalDecision(BaseModel):
+    review_id: str = Field(min_length=1, max_length=200)
     decision: Literal["approve", "reject"]
     reviewer: str = Field(min_length=1, max_length=100)
     comment: str | None = Field(default=None, max_length=1_000)
 
 
 class PendingAction(BaseModel):
+    review_id: str
     action: str
     arguments: dict[str, Any]
     reason: str
@@ -45,6 +47,7 @@ class RunState(BaseModel):
     category: str | None = None
     pending_action: PendingAction | None = None
     citations: list[str] = Field(default_factory=list)
+    safety_flags: list[str] = Field(default_factory=list)
     # Set from workflow.now(), never datetime.now(): workflow code must be deterministic
     # so that replay produces the same value.
     created_at: datetime | None = None

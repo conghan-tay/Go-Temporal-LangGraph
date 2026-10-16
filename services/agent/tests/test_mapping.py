@@ -35,7 +35,9 @@ def test_pending_action_forces_waiting_approval() -> None:
     state = to_run_state(
         ticket_id="ticket-2",
         values={"draft": "A refund is proposed. [refund-policy]"},
-        pending_action=PendingAction(action="refund", arguments={}, reason="requested"),
+        pending_action=PendingAction(
+            review_id="ticket-2:business_action", action="refund", arguments={}, reason="requested"
+        ),
     )
 
     assert state.status is RunStatus.WAITING_APPROVAL
@@ -62,3 +64,9 @@ def test_rejected_status_is_preserved() -> None:
     )
 
     assert state.status is RunStatus.REJECTED
+
+
+def test_safety_flags_survive_projection():
+    assert to_run_state(
+        ticket_id="t", values={"safety_flags": ["prompt_injection:role_impersonation"]}
+    ).safety_flags == ["prompt_injection:role_impersonation"]

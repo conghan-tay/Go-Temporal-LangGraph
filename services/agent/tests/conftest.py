@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Iterator
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -52,7 +53,7 @@ def knowledge() -> MemoryKnowledgeRepository:
             KnowledgeDocument(
                 id="shipping-policy",
                 title="Shipping policy",
-                content="Shipping takes 3 to 5 business days.",
+                content="Order delivery and shipping takes 3 to 5 business days.",
                 source="shipping-policy",
             ),
         ]
@@ -62,12 +63,14 @@ def knowledge() -> MemoryKnowledgeRepository:
 
 @pytest.fixture
 def nodes(settings: Settings, knowledge: MemoryKnowledgeRepository) -> SupportNodes:
-    return SupportNodes(
-        settings=settings,
-        model=FakeSupportModel(),
-        knowledge=knowledge,
-        tools=ToolRegistry([lookup_order]),
-    )
+    model = FakeSupportModel()
+    for name in ("classify", "plan", "draft", "critique"):
+        setattr(model, name, AsyncMock(wraps=getattr(model, name)))
+    knowledge.search = AsyncMock(wraps=knowledge.search)
+    tools = ToolRegistry([lookup_order])
+    tools.execute_read_tool = AsyncMock(wraps=tools.execute_read_tool)
+    tools.execute_action = AsyncMock(wraps=tools.execute_action)
+    return SupportNodes(settings=settings, model=model, knowledge=knowledge, tools=tools)
 
 
 @pytest_asyncio.fixture

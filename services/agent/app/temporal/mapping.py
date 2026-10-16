@@ -52,4 +52,5 @@ def to_run_state(
         pending_action=pending_action,
         citations=citations(answer or values.get("draft")),
         created_at=created_at,
+        safety_flags=values.get("safety_flags", []),
     )

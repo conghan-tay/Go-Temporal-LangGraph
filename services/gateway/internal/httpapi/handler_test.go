@@ -381,7 +381,7 @@ func TestDecisionOnARunningTicketIsAConflict(t *testing.T) {
 
 	recorder := do(
 		handler, http.MethodPost, "/v1/tickets/ticket-1/decision",
-		`{"decision":"approve","reviewer":"m-1"}`,
+		`{"review_id":"ticket-1:business_action","decision":"approve","reviewer":"m-1"}`,
 	)
 
 	if recorder.Code != http.StatusConflict {
@@ -421,7 +421,7 @@ func TestDecisionIsForwardedToTheNamedTicket(t *testing.T) {
 
 	recorder := do(
 		handler, http.MethodPost, "/v1/tickets/ticket-7/decision",
-		`{"decision":"approve","reviewer":"manager-7","comment":"Policy verified"}`,
+		`{"review_id":"ticket-1:business_action","decision":"approve","reviewer":"manager-7","comment":"Policy verified"}`,
 	)
 
 	if recorder.Code != http.StatusAccepted {
@@ -467,5 +467,39 @@ func TestTicketIDsWithPathSeparatorsAreRejected(t *testing.T) {
 	}
 	if service.ticketID != "" {
 		t.Fatalf("traversal attempt reached the agent runtime: %q", service.ticketID)
+	}
+}
+
+func TestStaleReviewIsAConflict(t *testing.T) {
+	handler := newHandler(&fakeTickets{returnErr: tickets.ErrStaleReview}, nil)
+	response := do(handler, http.MethodPost, "/v1/tickets/ticket-1/decision",
+		`{"review_id":"old","decision":"approve","reviewer":"manager"}`)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d", response.Code)
+	}
+}
+
+func TestDecisionRequiresReviewID(t *testing.T) {
+	service := &fakeTickets{}
+	response := do(newHandler(service, nil), http.MethodPost, "/v1/tickets/ticket-1/decision",
+		`{"decision":"approve","reviewer":"manager"}`)
+	if response.Code != http.StatusBadRequest || service.decided != nil {
+		t.Fatalf("status = %d, decision = %+v", response.Code, service.decided)
+	}
+}
+
+func TestSafetyFlagsAndReviewIDAreReturned(t *testing.T) {
+	service := &fakeTickets{state: api.RunState{
+		TicketID: "ticket-1", Status: api.StatusWaitingApproval,
+		SafetyFlags:   []string{"prompt_injection:role_impersonation"},
+		PendingAction: &api.PendingAction{ReviewID: "ticket-1:input_review", Action: "input_review"},
+	}}
+	response := do(newHandler(service, nil), http.MethodGet, "/v1/tickets/ticket-1", "")
+	var state api.RunState
+	if err := json.Unmarshal(response.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.SafetyFlags) != 1 || state.PendingAction.ReviewID != "ticket-1:input_review" {
+		t.Fatalf("state = %+v", state)
 	}
 }
